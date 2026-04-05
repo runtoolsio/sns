@@ -39,6 +39,16 @@ def test_parse_term_status_string():
     assert rules[0].term_statuses == {TerminationStatus.FAILED}
 
 
+def test_parse_invalid_term_status_skips_rule():
+    rules = _parse_rules([{"term_status": "bogus", "topic_arn": "arn:topic"}])
+    assert len(rules) == 0
+
+
+def test_parse_invalid_stage_skips_rule():
+    rules = _parse_rules([{"stage": "bogus", "topic_arn": "arn:topic"}])
+    assert len(rules) == 0
+
+
 def test_parse_case_insensitive():
     rules = _parse_rules([{"stage": "Running", "term_status": "Failed", "topic_arn": "arn:topic"}])
     assert rules[0].stages == {Stage.RUNNING}
