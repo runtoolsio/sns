@@ -20,6 +20,7 @@ topic_arn = "arn:aws:sns:eu-west-1:123:lifecycle"
 ### Rule fields
 
 - **`stage`** — lifecycle stage(s) to match: `created`, `running`, `ended` (default: `ended`)
-- **`term_status`** — narrows `ended` to specific statuses: `completed`, `failed`, `stopped`, etc.
+- **`outcome`** — match by outcome group: `success`, `fault`, `aborted`, `rejected`, `ignored`
+- **`term_status`** — match by specific status: `completed`, `failed`, `stopped`, `timeout`, etc.
 - **`topic_arn`** — SNS topic ARN (required)
 - **`format`** — message format: `json` (default) or `slack`

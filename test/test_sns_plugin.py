@@ -49,6 +49,31 @@ def test_parse_invalid_stage_skips_rule():
     assert len(rules) == 0
 
 
+def test_parse_outcome_expands_to_term_statuses():
+    rules = _parse_rules([{"outcome": "fault", "topic_arn": "arn:topic"}])
+    assert len(rules) == 1
+    assert TerminationStatus.FAILED in rules[0].term_statuses
+    assert TerminationStatus.ERROR in rules[0].term_statuses
+    assert TerminationStatus.COMPLETED not in rules[0].term_statuses
+
+
+def test_parse_outcome_array():
+    rules = _parse_rules([{"outcome": ["fault", "aborted"], "topic_arn": "arn:topic"}])
+    assert TerminationStatus.FAILED in rules[0].term_statuses
+    assert TerminationStatus.STOPPED in rules[0].term_statuses
+
+
+def test_parse_outcome_combined_with_term_status():
+    rules = _parse_rules([{"outcome": "aborted", "term_status": "failed", "topic_arn": "arn:topic"}])
+    assert TerminationStatus.FAILED in rules[0].term_statuses
+    assert TerminationStatus.STOPPED in rules[0].term_statuses
+
+
+def test_parse_invalid_outcome_skips_rule():
+    rules = _parse_rules([{"outcome": "bogus", "topic_arn": "arn:topic"}])
+    assert len(rules) == 0
+
+
 def test_parse_case_insensitive():
     rules = _parse_rules([{"stage": "Running", "term_status": "Failed", "topic_arn": "arn:topic"}])
     assert rules[0].stages == {Stage.RUNNING}

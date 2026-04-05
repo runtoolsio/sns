@@ -7,7 +7,7 @@ import boto3
 
 from runtools.runcore.job import JobInstance, InstanceLifecycleEvent, InstanceLifecycleObserver
 from runtools.runcore.plugins import Plugin, PluginDisabledError
-from runtools.runcore.run import Stage, TerminationStatus
+from runtools.runcore.run import Outcome, Stage, TerminationStatus
 from runtools.sns.formatters import FORMATTERS
 
 log = logging.getLogger(__name__)
@@ -99,10 +99,15 @@ def _parse_rules(rules_config: List[Dict]) -> List[_Rule]:
         if stages is None:
             continue
 
-        # Parse term_statuses (optional narrowing within ENDED)
+        # Parse term_statuses — from explicit term_status and/or outcome
         term_statuses = _parse_enum_set(entry, 'term_status', TerminationStatus, default=set())
         if term_statuses is None:
             continue
+        outcomes = _parse_enum_set(entry, 'outcome', Outcome, default=set())
+        if outcomes is None:
+            continue
+        if outcomes:
+            term_statuses = term_statuses | TerminationStatus.get_statuses(*outcomes)
 
         # Parse format
         format_name = entry.get('format', 'json')
