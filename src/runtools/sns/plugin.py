@@ -5,7 +5,7 @@ from typing import Callable, Dict, List, Set
 
 import boto3
 
-from runtools.runcore.job import JobInstance, InstanceLifecycleEvent, InstanceLifecycleObserver
+from runtools.runcore.job import JobInstance, InstanceLifecycleEvent, InstanceLifecycleObserver, InstanceID
 from runtools.runcore.plugins import Plugin, PluginDisabledError
 from runtools.runcore.run import Outcome, Stage, TerminationStatus
 from runtools.sns.formatters import FORMATTERS
@@ -26,16 +26,22 @@ class SnsPlugin(Plugin, InstanceLifecycleObserver, plugin_name='sns'):
     """
 
     def __init__(self, config: dict):
-        self._rules = _parse_rules(config.get('rules', []))
+        self._rules, invalid_count = _parse_rules(config.get('rules', []))
         if not self._rules:
             raise PluginDisabledError("No valid SNS rules configured")
         self._sns_client = boto3.client('sns')
-        log.info("event=[sns_plugin_initialized] rules=[%d]", len(self._rules))
+        self._instances: Dict[InstanceID, JobInstance] = {}
+        self._config_warning = f"SNS plugin: {invalid_count} invalid rule(s) skipped" if invalid_count else None
+        log.info("event=[sns_plugin_initialized] rules=[%d] invalid=[%d]", len(self._rules), invalid_count)
 
     def on_instance_added(self, job_instance: JobInstance):
+        self._instances[job_instance.id] = job_instance
+        if self._config_warning:
+            job_instance.tracking.warning(self._config_warning)
         job_instance.notifications.add_observer_lifecycle(self)
 
     def on_instance_removed(self, job_instance: JobInstance):
+        self._instances.pop(job_instance.id, None)
         job_instance.notifications.remove_observer_lifecycle(self)
 
     def instance_lifecycle_update(self, event: InstanceLifecycleEvent):
@@ -43,9 +49,12 @@ class SnsPlugin(Plugin, InstanceLifecycleObserver, plugin_name='sns'):
             if rule.matches(event):
                 try:
                     _publish(self._sns_client, rule.topic_arn, rule.formatter, event)
-                except Exception:
+                except Exception as e:
                     log.exception("event=[sns_publish_failed] topic=[%s] instance=[%s]",
                                   rule.topic_arn, event.job_run.metadata.instance_id)
+                    inst = self._instances.get(event.job_run.metadata.instance_id)
+                    if inst:
+                        inst.tracking.warning(f"SNS publish failed: {e}")
 
 
 class _Rule:
@@ -85,26 +94,35 @@ def _publish(sns_client, topic_arn: str, formatter: Callable, event: InstanceLif
              topic_arn, meta.instance_id, event.new_stage.name)
 
 
-def _parse_rules(rules_config: List[Dict]) -> List[_Rule]:
-    """Parse rule dicts into _Rule objects."""
+def _parse_rules(rules_config: List[Dict]) -> tuple[List[_Rule], int]:
+    """Parse rule dicts into _Rule objects.
+
+    Returns:
+        Tuple of (valid rules, count of invalid/skipped entries).
+    """
     rules = []
+    invalid = 0
     for entry in rules_config:
         topic_arn = entry.get('topic_arn')
         if not topic_arn:
             log.warning("event=[sns_rule_missing_topic] rule=[%s]", entry)
+            invalid += 1
             continue
 
         # Parse stages
         stages = _parse_enum_set(entry, 'stage', Stage, default={Stage.ENDED})
         if stages is None:
+            invalid += 1
             continue
 
         # Parse term_statuses — from explicit term_status and/or outcome
         term_statuses = _parse_enum_set(entry, 'term_status', TerminationStatus, default=set())
         if term_statuses is None:
+            invalid += 1
             continue
         outcomes = _parse_enum_set(entry, 'outcome', Outcome, default=set())
         if outcomes is None:
+            invalid += 1
             continue
         if outcomes:
             term_statuses = term_statuses | TerminationStatus.get_statuses(*outcomes)
@@ -115,10 +133,11 @@ def _parse_rules(rules_config: List[Dict]) -> List[_Rule]:
         if not formatter:
             log.warning("event=[sns_rule_invalid_format] format=[%s] valid=[%s]",
                         format_name, list(FORMATTERS))
+            invalid += 1
             continue
 
         rules.append(_Rule(stages, term_statuses, topic_arn, formatter))
-    return rules
+    return rules, invalid
 
 
 def _parse_enum_set(entry: dict, key: str, enum_cls, default=None) -> set | None:

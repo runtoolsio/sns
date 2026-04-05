@@ -13,44 +13,44 @@ from runtools.sns.plugin import SnsPlugin, _parse_rules
 # --- Rule parsing ---
 
 def test_parse_defaults_to_ended_stage():
-    rules = _parse_rules([{"topic_arn": "arn:topic"}])
+    rules, _ = _parse_rules([{"topic_arn": "arn:topic"}])
     assert len(rules) == 1
     assert rules[0].stages == {Stage.ENDED}
     assert rules[0].term_statuses == set()
 
 
 def test_parse_stage_string():
-    rules = _parse_rules([{"stage": "running", "topic_arn": "arn:topic"}])
+    rules, _ = _parse_rules([{"stage": "running", "topic_arn": "arn:topic"}])
     assert rules[0].stages == {Stage.RUNNING}
 
 
 def test_parse_stage_array():
-    rules = _parse_rules([{"stage": ["running", "ended"], "topic_arn": "arn:topic"}])
+    rules, _ = _parse_rules([{"stage": ["running", "ended"], "topic_arn": "arn:topic"}])
     assert rules[0].stages == {Stage.RUNNING, Stage.ENDED}
 
 
 def test_parse_term_status_array():
-    rules = _parse_rules([{"term_status": ["failed", "stopped"], "topic_arn": "arn:topic"}])
+    rules, _ = _parse_rules([{"term_status": ["failed", "stopped"], "topic_arn": "arn:topic"}])
     assert rules[0].term_statuses == {TerminationStatus.FAILED, TerminationStatus.STOPPED}
 
 
 def test_parse_term_status_string():
-    rules = _parse_rules([{"term_status": "failed", "topic_arn": "arn:topic"}])
+    rules, _ = _parse_rules([{"term_status": "failed", "topic_arn": "arn:topic"}])
     assert rules[0].term_statuses == {TerminationStatus.FAILED}
 
 
 def test_parse_invalid_term_status_skips_rule():
-    rules = _parse_rules([{"term_status": "bogus", "topic_arn": "arn:topic"}])
+    rules, _ = _parse_rules([{"term_status": "bogus", "topic_arn": "arn:topic"}])
     assert len(rules) == 0
 
 
 def test_parse_invalid_stage_skips_rule():
-    rules = _parse_rules([{"stage": "bogus", "topic_arn": "arn:topic"}])
+    rules, _ = _parse_rules([{"stage": "bogus", "topic_arn": "arn:topic"}])
     assert len(rules) == 0
 
 
 def test_parse_outcome_expands_to_term_statuses():
-    rules = _parse_rules([{"outcome": "fault", "topic_arn": "arn:topic"}])
+    rules, _ = _parse_rules([{"outcome": "fault", "topic_arn": "arn:topic"}])
     assert len(rules) == 1
     assert TerminationStatus.FAILED in rules[0].term_statuses
     assert TerminationStatus.ERROR in rules[0].term_statuses
@@ -58,46 +58,56 @@ def test_parse_outcome_expands_to_term_statuses():
 
 
 def test_parse_outcome_array():
-    rules = _parse_rules([{"outcome": ["fault", "aborted"], "topic_arn": "arn:topic"}])
+    rules, _ = _parse_rules([{"outcome": ["fault", "aborted"], "topic_arn": "arn:topic"}])
     assert TerminationStatus.FAILED in rules[0].term_statuses
     assert TerminationStatus.STOPPED in rules[0].term_statuses
 
 
 def test_parse_outcome_combined_with_term_status():
-    rules = _parse_rules([{"outcome": "aborted", "term_status": "failed", "topic_arn": "arn:topic"}])
+    rules, _ = _parse_rules([{"outcome": "aborted", "term_status": "failed", "topic_arn": "arn:topic"}])
     assert TerminationStatus.FAILED in rules[0].term_statuses
     assert TerminationStatus.STOPPED in rules[0].term_statuses
 
 
 def test_parse_invalid_outcome_skips_rule():
-    rules = _parse_rules([{"outcome": "bogus", "topic_arn": "arn:topic"}])
+    rules, _ = _parse_rules([{"outcome": "bogus", "topic_arn": "arn:topic"}])
     assert len(rules) == 0
 
 
+def test_parse_returns_invalid_count():
+    rules, invalid = _parse_rules([
+        {"topic_arn": "arn:topic"},                          # valid
+        {"stage": "bogus", "topic_arn": "arn:topic"},        # invalid stage
+        {"term_status": "bogus", "topic_arn": "arn:topic"},  # invalid status
+    ])
+    assert len(rules) == 1
+    assert invalid == 2
+
+
 def test_parse_case_insensitive():
-    rules = _parse_rules([{"stage": "Running", "term_status": "Failed", "topic_arn": "arn:topic"}])
+    rules, _ = _parse_rules([{"stage": "Running", "term_status": "Failed", "topic_arn": "arn:topic"}])
     assert rules[0].stages == {Stage.RUNNING}
     assert rules[0].term_statuses == {TerminationStatus.FAILED}
 
 
 def test_parse_missing_topic_skipped():
-    rules = _parse_rules([{"stage": "ended"}])
+    rules, _ = _parse_rules([{"stage": "ended"}])
     assert len(rules) == 0
 
 
 def test_parse_invalid_format_skipped():
-    rules = _parse_rules([{"topic_arn": "arn:topic", "format": "xml"}])
+    rules, _ = _parse_rules([{"topic_arn": "arn:topic", "format": "xml"}])
     assert len(rules) == 0
 
 
 def test_parse_format_defaults_to_json():
-    rules = _parse_rules([{"topic_arn": "arn:topic"}])
+    rules, _ = _parse_rules([{"topic_arn": "arn:topic"}])
     from runtools.sns.formatters import format_json
     assert rules[0].formatter is format_json
 
 
 def test_parse_format_slack():
-    rules = _parse_rules([{"topic_arn": "arn:topic", "format": "slack"}])
+    rules, _ = _parse_rules([{"topic_arn": "arn:topic", "format": "slack"}])
     from runtools.sns.formatters import format_slack
     assert rules[0].formatter is format_slack
 
