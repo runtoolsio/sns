@@ -13,10 +13,9 @@ from runtools.sns.plugin import SnsPlugin, _parse_rules
 # --- Rule parsing ---
 
 def test_parse_valid_rule():
-    rules = _parse_rules([{"term_status": "failed", "topic_arn": "arn:aws:sns:eu-west-1:123:alerts"}])
+    rules = _parse_rules([{"term_status": "failed", "topic_arn": "arn:topic"}])
     assert len(rules) == 1
     assert rules[0].term_status == TerminationStatus.FAILED
-    assert rules[0].topic_arn == "arn:aws:sns:eu-west-1:123:alerts"
 
 
 def test_parse_case_insensitive():
@@ -36,6 +35,23 @@ def test_parse_missing_topic_skipped():
 
 def test_parse_empty_rules():
     rules = _parse_rules([])
+    assert len(rules) == 0
+
+
+def test_parse_format_defaults_to_json():
+    rules = _parse_rules([{"term_status": "failed", "topic_arn": "arn:topic"}])
+    from runtools.sns.formatters import format_json
+    assert rules[0].formatter is format_json
+
+
+def test_parse_format_slack():
+    rules = _parse_rules([{"term_status": "failed", "topic_arn": "arn:topic", "format": "slack"}])
+    from runtools.sns.formatters import format_slack
+    assert rules[0].formatter is format_slack
+
+
+def test_parse_invalid_format_skipped():
+    rules = _parse_rules([{"term_status": "failed", "topic_arn": "arn:topic", "format": "xml"}])
     assert len(rules) == 0
 
 
@@ -75,12 +91,12 @@ def _make_event(status: TerminationStatus, job_id="test-job", run_id="run1", mes
 
 
 @patch("runtools.sns.plugin.boto3")
-def test_matching_rule_publishes(mock_boto3):
+def test_matching_rule_publishes_json(mock_boto3):
     mock_sns = MagicMock()
     mock_boto3.client.return_value = mock_sns
 
     plugin = SnsPlugin({"rules": [{"term_status": "failed", "topic_arn": "arn:topic"}]})
-    event = _make_event(TerminationStatus.FAILED, message="Program returned non-zero exit code: 1")
+    event = _make_event(TerminationStatus.FAILED, message="Exit code: 1")
 
     plugin.instance_lifecycle_update(event)
 
@@ -91,6 +107,25 @@ def test_matching_rule_publishes(mock_boto3):
     message = json.loads(call_kwargs["Message"])
     assert message["event"]["new_stage"] == "ENDED"
     assert message["event_metadata"]["instance"]["job_id"] == "test-job"
+
+
+@patch("runtools.sns.plugin.boto3")
+def test_matching_rule_publishes_slack(mock_boto3):
+    mock_sns = MagicMock()
+    mock_boto3.client.return_value = mock_sns
+
+    plugin = SnsPlugin({"rules": [{"term_status": "failed", "topic_arn": "arn:topic", "format": "slack"}]})
+    event = _make_event(TerminationStatus.FAILED, message="Exit code: 1")
+
+    plugin.instance_lifecycle_update(event)
+
+    mock_sns.publish.assert_called_once()
+    call_kwargs = mock_sns.publish.call_args[1]
+    msg = call_kwargs["Message"]
+    assert ":x:" in msg
+    assert "*Job:*" in msg
+    assert "`test-job`" in msg
+    assert "Exit code: 1" in msg
 
 
 @patch("runtools.sns.plugin.boto3")
