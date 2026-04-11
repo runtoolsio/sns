@@ -32,7 +32,7 @@ class SnsPlugin(Plugin, InstanceLifecycleObserver, plugin_name='sns'):
         self._sns_client = boto3.client('sns')
         self._instances: Dict[InstanceID, JobInstance] = {}
         self._config_warning = f"SNS plugin: {invalid_count} invalid rule(s) skipped" if invalid_count else None
-        log.info("event=[sns_plugin_initialized] rules=[%d] invalid=[%d]", len(self._rules), invalid_count)
+        log.debug("SNS plugin initialized", extra={"rules": len(self._rules), "invalid": invalid_count})
 
     def on_instance_added(self, job_instance: JobInstance):
         self._instances[job_instance.id] = job_instance
@@ -50,8 +50,8 @@ class SnsPlugin(Plugin, InstanceLifecycleObserver, plugin_name='sns'):
                 try:
                     _publish(self._sns_client, rule.topic_arn, rule.formatter, event)
                 except Exception as e:
-                    log.exception("event=[sns_publish_failed] topic=[%s] instance=[%s]",
-                                  rule.topic_arn, event.job_run.metadata.instance_id)
+                    log.exception("SNS publish failed",
+                                  extra={"topic": rule.topic_arn, "instance": str(event.job_run.metadata.instance_id)})
                     inst = self._instances.get(event.job_run.metadata.instance_id)
                     if inst:
                         inst.tracking.warning(f"SNS publish failed: {e}")
@@ -90,8 +90,8 @@ def _publish(sns_client, topic_arn: str, formatter: Callable, event: InstanceLif
         Subject=subject[:100],
         Message=formatter(event),
     )
-    log.info("event=[sns_notification_sent] topic=[%s] instance=[%s] stage=[%s]",
-             topic_arn, meta.instance_id, event.new_stage.name)
+    log.debug("SNS notification sent",
+              extra={"topic": topic_arn, "instance": str(meta.instance_id), "stage": event.new_stage.name})
 
 
 def _parse_rules(rules_config: List[Dict]) -> tuple[List[_Rule], int]:
@@ -105,7 +105,7 @@ def _parse_rules(rules_config: List[Dict]) -> tuple[List[_Rule], int]:
     for entry in rules_config:
         topic_arn = entry.get('topic_arn')
         if not topic_arn:
-            log.warning("event=[sns_rule_missing_topic] rule=[%s]", entry)
+            log.warning("SNS rule missing topic_arn", extra={"rule": str(entry)})
             invalid += 1
             continue
 
@@ -131,8 +131,8 @@ def _parse_rules(rules_config: List[Dict]) -> tuple[List[_Rule], int]:
         format_name = entry.get('format', 'json')
         formatter = FORMATTERS.get(format_name)
         if not formatter:
-            log.warning("event=[sns_rule_invalid_format] format=[%s] valid=[%s]",
-                        format_name, list(FORMATTERS))
+            log.warning("SNS rule invalid format",
+                        extra={"format": format_name, "valid": list(FORMATTERS)})
             invalid += 1
             continue
 
@@ -156,9 +156,9 @@ def _parse_enum_set(entry: dict, key: str, enum_cls, default=None) -> set | None
         try:
             result.add(enum_cls[name.upper()])
         except KeyError:
-            log.warning("event=[sns_rule_invalid_%s] value=[%s] valid=[%s]",
-                        key, name, [e.name for e in enum_cls])
+            log.warning("SNS rule invalid value",
+                        extra={"field": key, "value": name, "valid": [e.name for e in enum_cls]})
     if not result:
-        log.warning("event=[sns_rule_skipped] reason=[no valid %s values] rule=[%s]", key, entry)
+        log.warning("SNS rule skipped", extra={"reason": f"no valid {key} values", "rule": str(entry)})
         return None
     return result
